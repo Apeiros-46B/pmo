@@ -1,17 +1,18 @@
-mod model;
-mod routes;
 mod config;
+mod db;
+mod model;
+mod secrets;
 
 use anyhow::Result;
 use axum::{Router, extract::State, routing::get};
 
-use crate::model::{AppState, init_state};
+use crate::model::AppState;
 
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
 
-    let state = init_state().await?;
+    let state = AppState::new().await?;
     let app = Router::new()
         .route("/pepper", get(pepper))
         .route("/alphabet", get(alphabet))
