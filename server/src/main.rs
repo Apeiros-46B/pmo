@@ -1,7 +1,9 @@
-mod config;
+mod auth;
 mod db;
 mod model;
+mod post;
 mod secrets;
+mod util;
 
 use anyhow::Result;
 use axum::{Router, extract::State, routing::get};

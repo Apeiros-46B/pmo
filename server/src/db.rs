@@ -24,7 +24,8 @@ impl Db {
     pub async fn open(path: &str) -> Result<Self> {
         let write_opts = SqliteConnectOptions::new()
             .filename(path)
-            .journal_mode(SqliteJournalMode::Wal);
+            .journal_mode(SqliteJournalMode::Wal)
+            .foreign_keys(true);
         let read_opts = write_opts.clone().read_only(true);
 
         let cpus: usize = std::thread::available_parallelism().map_or(1, Into::into);

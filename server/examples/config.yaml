@@ -1,0 +1,78 @@
+general:
+  storage_path: /mnt/media/pmo
+  allow_signups: false
+
+# Role hierarchy, the first role is the highest and the last role is the lowest.
+# "owner: true" makes that role the default granted to the first registered account.
+# "user: true" makes that role the default granted to newly registered users.
+# "guest: true" makes that role the default granted to unauthenticated guest users.
+roles:
+  - id: owner
+    name: Owner
+    owner: true
+  - id: admin
+    name: Administrator
+  - id: mod
+    name: Moderator
+  - id: trusted
+    name: Trusted
+  - id: user
+    name: User
+    user: true
+  - id: guest
+    name: Guest
+    guest: true
+
+# Default permissions for roles. The value of every pair must be a role ID. All
+# permissions are denied for all roles by default, you should use a wildcard to grant
+# your admin/root role privileged permissions if necessary.
+permissions:
+  "*": owner
+  user.invite: admin
+  user.edit.roles: admin
+  post.view(rating=safe): guest
+  post.view(rating!=safe): user
+  post.edit(owned): user
+  post.edit(!owned): trusted
+  # ...
+
+# Logical storage collections with individidual permission overrides. "default: true"
+# makes that collection the default target for file uploads. Moving a file between
+# collections is guaranteed to never move any underlying files on disk.
+collections:
+  inbox:
+    name: Inbox
+    default: true
+    permissions:
+      post.view(owned): user
+      post.view(!owned): mod
+      post.move.out: mod
+
+  public:
+    name: Public
+    permissions:
+      post.view: guest
+
+  memes:
+    name: Memes
+    permissions:
+      post.view: user
+
+  media:
+    name: Media
+    permissions:
+      post.view: user
+
+# External libraries. These are periodically scanned for new files, which are added as
+# posts under the set collection, or the default collection if none is set.
+libraries:
+  music:
+    name: Music
+    path: /mnt/media/music
+    collection: media
+    rescan-interval: 600
+  films:
+    name: Films
+    path: /mnt/media/films
+    collection: media
+    rescan-interval: 600

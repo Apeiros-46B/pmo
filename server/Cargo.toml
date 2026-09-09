@@ -8,15 +8,19 @@ anyhow = "1.0.104"
 argon2 = "0.6.0"
 axum = "0.8.9"
 blake3 = "1.8.7"
+moka = { version = "0.12.16", features = ["future"] }
 password-hash = "0.6.1"
+paste = "1.0.15"
 rand = "0.10.2"
 reqwest = "0.13.4"
 scraper = "0.27.0"
 serde = { version = "1.0.229", features = ["derive"] }
+smallvec = { version = "1.16.0", features = ["union"] }
+smol_str = "0.3.6"
 sqids = "0.4.2"
 sqlx = { version = "0.9.0", features = ["runtime-tokio", "sqlite"] }
 tokio = { version = "1.53.1", features = ["full"] }
 tower-http = { version = "0.7.1", features = ["cors", "trace", "fs"] }
 tracing = "0.1.44"
 tracing-subscriber = "0.3.23"
-yaml_serde = "0.10.7"
+yaml-rust2 = "0.12.0"
