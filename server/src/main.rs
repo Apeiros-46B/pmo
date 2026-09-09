@@ -1,6 +1,7 @@
 mod auth;
 mod db;
 mod model;
+mod perms;
 mod post;
 mod secrets;
 mod util;
