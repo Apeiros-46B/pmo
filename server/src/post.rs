@@ -2,8 +2,19 @@
 #[repr(u32)]
 pub enum Rating {
     Safe,
-    Questionable,
-    Explicit,
+    Risky,
+    Unsafe,
+}
+
+impl Rating {
+    pub fn from_str(s: &str) -> anyhow::Result<Self> {
+        match s {
+            "safe" => Ok(Rating::Safe),
+            "risky" => Ok(Rating::Risky),
+            "unsafe" => Ok(Rating::Unsafe),
+            _ => Err(anyhow::anyhow!("unknown rating '{s}'")),
+        }
+    }
 }
 
 /// not a primary key, transient derived integer

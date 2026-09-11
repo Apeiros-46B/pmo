@@ -1,6 +1,7 @@
 use std::cmp::Ordering;
 
-use smallvec::SmallVec;
+use anyhow::{Context, Result, bail};
+use smallvec::{SmallVec, smallvec};
 
 use crate::{
     auth::RoleKey,
@@ -12,12 +13,14 @@ use crate::{
 #[derive(Debug)]
 pub struct AuthContext {
     pub post_rating: Rating,
+    pub post_score: i64,
     pub post_owned: bool,
     pub post_collection: Collection,
     pub user_role: RoleKey,
 }
 
 // indexed by Permission::to_usize
+#[derive(Debug)]
 pub struct PermissionTable([Box<[Rule]>; Permission::COUNT]);
 
 impl PermissionTable {
@@ -47,6 +50,43 @@ impl PermissionTableBuilder {
         self.0[rule.perm.as_usize()].push(rule);
     }
 
+    pub fn parse_and_register<'a>(
+        &mut self,
+        perms: impl Iterator<Item = (&'a String, RoleKey)>,
+        collection: Option<Collection>,
+    ) -> anyhow::Result<()> {
+        let perm_key_regex = regex::regex!(r"^([a-z.]+(?:\.\*)?|\*)(\([^)]+\))?$");
+
+        for (full_key, role) in perms {
+            let Some(captures) = perm_key_regex.captures(full_key) else {
+                bail!("permission key '{full_key}' is malformed");
+            };
+
+            let key = captures.get(1).unwrap().as_str();
+            let perms = Permission::from_key(key)?;
+            let mut conds = if let Some(cap) = captures.get(2) {
+                Predicate::from_str(cap.as_str())?
+            } else {
+                smallvec![]
+            };
+
+            if let Some(collection) = collection {
+                conds.push(Predicate::PostCollection(collection));
+            }
+
+            let exact = perms.len() == 1;
+            for perm in perms {
+                self.register(Rule {
+                    perm,
+                    conds: conds.clone(),
+                    role,
+                    exact,
+                });
+            }
+        }
+        Ok(())
+    }
+
     pub fn build(self) -> PermissionTable {
         let mut perms: [Box<[Rule]>; Permission::COUNT] = Default::default();
 
@@ -68,24 +108,84 @@ pub enum Predicate {
         cmp: Comparator,
         rating: Rating,
     },
-    PostOwned(bool), // whether or not the user owns the post
-    PostCollection {
-        // false = neq, true = eq
-        eq: bool,
-        collection: Collection,
+    PostScore {
+        cmp: Comparator,
+        score: i64,
     },
+    PostOwned(bool), // whether or not the user owns the post
     // TODO: add more predicate options
+
+    // only internally constructed, user text cannot create it
+    PostCollection(Collection),
 }
 
+pub type PredicateGroup = SmallVec<[Predicate; 4]>;
+
 impl Predicate {
+    /// takes a string like "(owned,rating=safe)"
+    pub fn from_str(s: &str) -> Result<PredicateGroup> {
+        let mut res = smallvec![];
+
+        for predicate in s[1..s.len()-1].split(",") {
+            res.push(Self::from_str_one(predicate)?);
+        }
+
+        Ok(res)
+    }
+
+    /// takes a string like "owned" or "rating=safe"
+    fn from_str_one(s: &str) -> Result<Self> {
+        let s = s.trim();
+
+        // order matters, longer operators have to come first
+        let comparators = [
+            ("<=", Comparator::Lte),
+            ("!=", Comparator::Neq),
+            (">=", Comparator::Gte),
+            ("<",  Comparator::Lt),
+            ("=",  Comparator::Eq),
+            (">",  Comparator::Gt),
+        ];
+
+        // try finding comparators first
+        for (op, cmp) in comparators {
+            let Some(i) = s.find(op) else { continue };
+
+            let key = s[..i].trim();
+            let val = s[i + op.len()..].trim();
+
+            return match key {
+                "rating" => {
+                    let rating = Rating::from_str(val).context("invalid rating value")?;
+                    Ok(Predicate::PostRating { cmp, rating })
+                }
+                "score" => {
+                    let score: i64 = val.parse().context("invalid integer value")?;
+                    Ok(Predicate::PostScore { cmp, score })
+                }
+                _ => anyhow::bail!("unknown comparison predicate '{key}'"),
+            };
+        }
+
+        // no comparators found so it must be a bool flag
+        let (key, is_true) = if let Some(stripped) = s.strip_prefix('!') {
+            (stripped.trim(), false)
+        } else {
+            (s, true)
+        };
+
+        match key {
+            "owned" => Ok(Predicate::PostOwned(is_true)),
+            _ => anyhow::bail!("unknown boolean predicate '{key}'"),
+        }
+    }
+
     pub fn matches(&self, ctx: &AuthContext) -> bool {
         match self {
             Predicate::PostRating { cmp, rating } => cmp.cmp(ctx.post_rating, *rating),
+            Predicate::PostScore { cmp, score } => cmp.cmp(ctx.post_score, *score),
             Predicate::PostOwned(owned) => ctx.post_owned == *owned,
-            Predicate::PostCollection { eq, collection } => {
-                let matches = ctx.post_collection == *collection;
-                if *eq { matches } else { !matches }
-            },
+            Predicate::PostCollection(col) => ctx.post_collection == *col,
         }
     }
 }
@@ -128,7 +228,7 @@ macro_rules! define_permissions {
             }
 
             /// no string validation done
-            pub fn from_key(value: &str) -> anyhow::Result<Vec<Self>> {
+            pub fn from_key(value: &str) -> Result<Vec<Self>> {
                 // check wildcard
                 if let Some(prefix) = value.strip_suffix('*') {
                     let mut matches = Vec::new();
@@ -171,7 +271,7 @@ define_permissions! {
 #[derive(Clone, Debug)]
 pub struct Rule {
     pub perm: Permission,
-    pub conds: SmallVec<[Predicate; 4]>,
+    pub conds: PredicateGroup,
     pub role: RoleKey,
     pub exact: bool,
 }
@@ -214,7 +314,7 @@ mod tests {
     // TODO: don't couple these tests to RoleKey's internal repr
     use std::cmp::Ordering;
 
-    use smallvec::{SmallVec, smallvec};
+    use smallvec::smallvec;
 
     use crate::{
         auth::{RoleKey},
@@ -227,6 +327,7 @@ mod tests {
     fn mock_ctx(role_val: u16, rating: Rating, owned: bool) -> AuthContext {
         AuthContext {
             post_rating: rating,
+            post_score: 0,
             post_owned: owned,
             user_role: RoleKey(role_val),
             post_collection: Collection(0),
@@ -234,6 +335,33 @@ mod tests {
     }
 
     // {{{ single-predicate evaluation
+    #[test]
+    fn test_predicate_post_rating() {
+        let cond_rating = Predicate::PostRating {
+            cmp: Comparator::Lte,
+            rating: Rating::Safe
+        };
+
+        assert!(cond_rating.matches(&mock_ctx(0, Rating::Safe, false)));
+        assert!(!cond_rating.matches(&mock_ctx(0, Rating::Risky, false)));
+        assert!(!cond_rating.matches(&mock_ctx(0, Rating::Unsafe, false)));
+    }
+
+    #[test]
+    fn test_predicate_post_score() {
+        let cond_score_eq = Predicate::PostScore {
+            cmp: Comparator::Eq,
+            score: 0,
+        };
+        let cond_score_gt = Predicate::PostScore {
+            cmp: Comparator::Gt,
+            score: 0,
+        };
+
+        assert!(cond_score_eq.matches(&mock_ctx(0, Rating::Safe, false)));
+        assert!(!cond_score_gt.matches(&mock_ctx(0, Rating::Safe, false)));
+    }
+
     #[test]
     fn test_predicate_post_owned() {
         let cond_owned = Predicate::PostOwned(true);
@@ -246,37 +374,16 @@ mod tests {
     }
 
     #[test]
-    fn test_predicate_post_rating() {
-        let cond_rating = Predicate::PostRating {
-            cmp: Comparator::Lte,
-            rating: Rating::Safe
-        };
-
-        assert!(cond_rating.matches(&mock_ctx(0, Rating::Safe, false)));
-        assert!(!cond_rating.matches(&mock_ctx(0, Rating::Questionable, false)));
-        assert!(!cond_rating.matches(&mock_ctx(0, Rating::Explicit, false)));
-    }
-
-    #[test]
     fn test_predicate_post_collection() {
-        let cond_collection0 = Predicate::PostCollection {
-            eq: true,
-            collection: Collection(0),
-        };
-        let cond_collection0n = Predicate::PostCollection {
-            eq: false,
-            collection: Collection(0),
-        };
-        let cond_collection1 = Predicate::PostCollection {
-            eq: true,
-            collection: Collection(1),
-        };
+        let cond_collection0 = Predicate::PostCollection(Collection(0));
+        let cond_collection1 = Predicate::PostCollection(Collection(1));
 
         assert!(cond_collection0.matches(&mock_ctx(0, Rating::Safe, false)));
-        assert!(!cond_collection0n.matches(&mock_ctx(0, Rating::Safe, false)));
         assert!(!cond_collection1.matches(&mock_ctx(0, Rating::Safe, false)));
     }
     // }}}
+
+    // TODO: test predicate construction
 
     // {{{ permission construction
     #[test]
@@ -314,13 +421,13 @@ mod tests {
     fn test_permission_rule_role() {
         let a = Rule {
             perm: Permission::PostView,
-            conds: SmallVec::new(),
+            conds: smallvec![],
             role: RoleKey(1),
             exact: true,
         };
         let b = Rule {
             perm: Permission::PostView,
-            conds: SmallVec::new(),
+            conds: smallvec![],
             role: RoleKey(0),
             exact: true,
         };
@@ -332,13 +439,13 @@ mod tests {
     fn test_permission_rule_path_depth() {
         let a = Rule {
             perm: Permission::PostView,
-            conds: SmallVec::new(),
+            conds: smallvec![],
             role: RoleKey(1),
             exact: true,
         };
         let b = Rule {
             perm: Permission::PostEditTag,
-            conds: SmallVec::new(),
+            conds: smallvec![],
             role: RoleKey(0),
             exact: true,
         };
@@ -350,13 +457,13 @@ mod tests {
     fn test_permission_rule_wildcard() {
         let a = Rule {
             perm: Permission::PostEditTag,
-            conds: SmallVec::new(),
+            conds: smallvec![],
             role: RoleKey(1),
             exact: false,
         };
         let b = Rule {
             perm: Permission::PostView,
-            conds: SmallVec::new(),
+            conds: smallvec![],
             role: RoleKey(0),
             exact: true,
         };
@@ -464,7 +571,7 @@ mod tests {
         assert_eq!(perms.check(Permission::PostView, &ctx_all), false);
 
         // context matches owned=true, fails B, should match D before C
-        let ctx_one = mock_ctx(0, Rating::Questionable, true);
+        let ctx_one = mock_ctx(0, Rating::Risky, true);
         assert_eq!(perms.check(Permission::PostView, &ctx_one), true);
 
         // no predicates true, fails B+D+C, should match E before A because role >

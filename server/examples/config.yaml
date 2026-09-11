@@ -28,12 +28,12 @@ roles:
 # your admin/root role privileged permissions if necessary.
 permissions:
   '*': owner
-  user.invite: admin
-  user.edit.roles: admin
+  # user.invite: admin
+  # user.edit.roles: admin
   post.view(rating=safe): guest
   post.view(rating!=safe): user
-  post.edit(owned): user
-  post.edit(!owned): trusted
+  post.edit.tag(owned): user
+  post.edit.tag(!owned): trusted
   # ...
 
 # Logical storage collections with individidual permission overrides. "default: true"

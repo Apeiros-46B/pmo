@@ -1,3 +1,5 @@
+// TODO: storage paths should probably not be PathBufs, should be custom string
+// format so that we can support stuff like S3 URLs
 use std::{collections::{HashMap, HashSet}, path::PathBuf};
 
 use anyhow::{Context, Result, bail};

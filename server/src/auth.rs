@@ -40,31 +40,28 @@ pub struct Role {
 
 // TODO: interface for handling user login, cache invalidation, etc
 pub struct Auth {
-    perms: PermissionTable,
-
     // indexed by RoleKey, first role is lowest
-    roles: Vec<Role>,
-    role_mapping: HashMap<String, RoleKey>,
+    pub roles: Vec<Role>,
+    pub role_mapping: HashMap<String, RoleKey>,
 
     // cache of user auth data
-    user_cache: Cache<UserId, User>,
+    pub user_cache: Cache<UserId, User>,
 }
 
 impl Auth {
-    /// roles must be sorted by power, the lowest role first and the highest last
+    /// roles must be sorted by power, the highest role first and the lowest last
     pub fn new(
         user_cache_size: u64,
         roles: Vec<Role>,
-        perms: PermissionTable,
     ) -> Self {
         let mut role_mapping = HashMap::new();
 
-        for (i, role) in roles.iter().enumerate() {
+        // rev to iterate from lowest to highest, lowest gets role key 0
+        for (i, role) in roles.iter().rev().enumerate() {
             role_mapping.insert(role.id.clone(), RoleKey(i as u16));
         }
 
         Auth {
-            perms,
             roles,
             role_mapping,
             user_cache: Cache::new(user_cache_size),

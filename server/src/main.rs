@@ -16,17 +16,18 @@ use crate::{config::Config, model::AppState};
 async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
 
-    let f = std::fs::File::open("examples/config.yaml")?;
-    dbg!(Config::read(f));
+    // TODO: don't hardcode config path
+    let config_file = std::fs::File::open("examples/config.yaml")?;
+    let config = Config::read(config_file)?;
 
-    // let state = AppState::new().await?;
-    // let app = Router::new()
-    //     .route("/pepper", get(pepper))
-    //     .route("/alphabet", get(alphabet))
-    //     .with_state(state);
-    //
-    // let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
-    // _ = axum::serve(listener, app).await;
+    let state = AppState::new(config).await?;
+    let app = Router::new()
+        .route("/pepper", get(pepper))
+        .route("/alphabet", get(alphabet))
+        .with_state(state);
+
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
+    _ = axum::serve(listener, app).await;
 
     Ok(())
 }

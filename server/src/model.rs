@@ -1,14 +1,9 @@
 use std::{ops::Deref, sync::Arc};
 
 use anyhow::Result;
-use smallvec::smallvec;
 
 use crate::{
-    auth::{Auth, RoleKey},
-    db::Db,
-    perms::{Permission, PermissionTableBuilder, Predicate, Rule},
-    post::Collection,
-    secrets::Secrets,
+    auth::{Auth, RoleKey}, config::Config, db::Db, perms::{PermissionTable, PermissionTableBuilder}, secrets::Secrets,
 };
 
 #[derive(Clone)]
@@ -17,49 +12,36 @@ pub struct AppState(Arc<State>);
 pub struct State {
     pub db: Db,
     pub auth: Auth,
+    pub perms: PermissionTable,
     pub secrets: Secrets
 }
 
 impl AppState {
     /// Create a new application state and connect to the database.
-    pub async fn new() -> Result<Self> {
-        // TODO: pass config table
-
-        let mut perm_builder = PermissionTableBuilder::default();
-
-        perm_builder.register(Rule {
-            perm: Permission::PostView,
-            conds: smallvec![
-                Predicate::PostCollection {
-                    eq: true,
-                    collection: Collection(0),
-                },
-            ],
-            role: RoleKey(1),
-            exact: true,
-        });
-
-        perm_builder.register(Rule {
-            perm: Permission::PostEditTag,
-            conds: smallvec![Predicate::PostOwned(false)],
-            role: RoleKey(2),
-            exact: true,
-        });
-        perm_builder.register(Rule {
-            perm: Permission::PostEditTag,
-            conds: smallvec![],
-            role: RoleKey(1),
-            exact: true,
-        });
-
-        let perms = perm_builder.build();
+    pub async fn new(config: Config) -> Result<Self> {
+        // TODO: aggregate collections, needed for collection predicates
 
         // TODO: don't hardcode database path, derive from config
         let db = Db::open("test.db").await?;
-        let auth = Auth::new(64, todo!(), perms);
         let secrets = Secrets::read_or_generate(&db).await?;
 
-        Ok(AppState(Arc::new(State { db, auth, secrets })))
+        let auth = Auth::new(64, config.roles);
+        let mapped_perms = config.permissions.iter()
+            .map(|(key, role)| (key, auth.role_mapping[role]));
+
+        let mut perm_builder = PermissionTableBuilder::default();
+        perm_builder.parse_and_register(mapped_perms, None)?;
+
+        // TODO: per-collection perms, need to register col in StorageBackend first
+
+        let perms = perm_builder.build();
+
+        Ok(AppState(Arc::new(State {
+            db,
+            auth,
+            perms,
+            secrets,
+        })))
     }
 }
 
