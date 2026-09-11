@@ -1,4 +1,5 @@
 mod auth;
+mod config;
 mod db;
 mod model;
 mod perms;
@@ -9,20 +10,23 @@ mod util;
 use anyhow::Result;
 use axum::{Router, extract::State, routing::get};
 
-use crate::model::AppState;
+use crate::{config::Config, model::AppState};
 
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
 
-    let state = AppState::new().await?;
-    let app = Router::new()
-        .route("/pepper", get(pepper))
-        .route("/alphabet", get(alphabet))
-        .with_state(state);
+    let f = std::fs::File::open("examples/config.yaml")?;
+    dbg!(Config::read(f));
 
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
-    _ = axum::serve(listener, app).await;
+    // let state = AppState::new().await?;
+    // let app = Router::new()
+    //     .route("/pepper", get(pepper))
+    //     .route("/alphabet", get(alphabet))
+    //     .with_state(state);
+    //
+    // let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
+    // _ = axum::serve(listener, app).await;
 
     Ok(())
 }

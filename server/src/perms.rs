@@ -1,12 +1,21 @@
-use std::cmp::{Ordering, Reverse};
+use std::cmp::Ordering;
 
 use smallvec::SmallVec;
 
 use crate::{
-    auth::{AuthContext, RoleTmpId},
+    auth::RoleKey,
     post::{Collection, Rating},
     util::Comparator,
 };
+
+/// context of an action that requires authorization
+#[derive(Debug)]
+pub struct AuthContext {
+    pub post_rating: Rating,
+    pub post_owned: bool,
+    pub post_collection: Collection,
+    pub user_role: RoleKey,
+}
 
 // indexed by Permission::to_usize
 pub struct PermissionTable([Box<[Rule]>; Permission::COUNT]);
@@ -163,9 +172,8 @@ define_permissions! {
 pub struct Rule {
     pub perm: Permission,
     pub conds: SmallVec<[Predicate; 4]>,
-    pub role: RoleTmpId,
+    pub role: RoleKey,
     pub exact: bool,
-    pub cfg_ord: u32,
 }
 
 impl Ord for Rule {
@@ -174,13 +182,13 @@ impl Ord for Rule {
             self.conds.len(),
             self.exact, // true > false
             self.perm.path_depth(),
-            Reverse(self.cfg_ord) // lower config index is stronger
+            self.role,
         );
         let b = (
             other.conds.len(),
             other.exact,
             other.perm.path_depth(),
-            Reverse(other.cfg_ord)
+            other.role,
         );
         a.cmp(&b)
     }
@@ -203,23 +211,24 @@ impl Eq for Rule {}
 
 #[cfg(test)]
 mod tests {
+    // TODO: don't couple these tests to RoleKey's internal repr
     use std::cmp::Ordering;
 
     use smallvec::{SmallVec, smallvec};
 
     use crate::{
-        auth::{AuthContext, RoleTmpId},
+        auth::{RoleKey},
         post::{Collection, Rating},
         util::Comparator,
     };
 
-    use super::{Permission, PermissionTableBuilder, Rule, Predicate};
+    use super::{AuthContext, Permission, PermissionTableBuilder, Rule, Predicate};
 
     fn mock_ctx(role_val: u16, rating: Rating, owned: bool) -> AuthContext {
         AuthContext {
             post_rating: rating,
             post_owned: owned,
-            user_role: RoleTmpId(role_val),
+            user_role: RoleKey(role_val),
             post_collection: Collection(0),
         }
     }
@@ -302,22 +311,20 @@ mod tests {
 
     // {{{ permission rule priority ordering
     #[test]
-    fn test_permission_rule_cfg_ord() {
+    fn test_permission_rule_role() {
         let a = Rule {
             perm: Permission::PostView,
             conds: SmallVec::new(),
-            role: RoleTmpId(0),
+            role: RoleKey(1),
             exact: true,
-            cfg_ord: 0,
         };
         let b = Rule {
             perm: Permission::PostView,
             conds: SmallVec::new(),
-            role: RoleTmpId(0),
+            role: RoleKey(0),
             exact: true,
-            cfg_ord: 1,
         };
-        // earlier rule is stronger
+        // higher role rule is stronger
         assert_eq!(a.cmp(&b), Ordering::Greater);
     }
 
@@ -326,18 +333,16 @@ mod tests {
         let a = Rule {
             perm: Permission::PostView,
             conds: SmallVec::new(),
-            role: RoleTmpId(0),
+            role: RoleKey(1),
             exact: true,
-            cfg_ord: 0,
         };
         let b = Rule {
             perm: Permission::PostEditTag,
             conds: SmallVec::new(),
-            role: RoleTmpId(0),
+            role: RoleKey(0),
             exact: true,
-            cfg_ord: 1,
         };
-        // post.view is weaker than post.edit.tag even though it comes earlier
+        // post.view is weaker than post.edit.tag even though it has a higher role
         assert_eq!(a.cmp(&b), Ordering::Less);
     }
 
@@ -346,18 +351,16 @@ mod tests {
         let a = Rule {
             perm: Permission::PostEditTag,
             conds: SmallVec::new(),
-            role: RoleTmpId(0),
+            role: RoleKey(1),
             exact: false,
-            cfg_ord: 0,
         };
         let b = Rule {
             perm: Permission::PostView,
             conds: SmallVec::new(),
-            role: RoleTmpId(0),
+            role: RoleKey(0),
             exact: true,
-            cfg_ord: 1,
         };
-        // wildcard is weaker even though it comes earlier
+        // wildcard is weaker even though it has a higher role
         assert_eq!(a.cmp(&b), Ordering::Less);
     }
 
@@ -371,16 +374,14 @@ mod tests {
         let a = Rule {
             perm: Permission::PostEditTag,
             conds: smallvec![owned.clone()],
-            role: RoleTmpId(0),
+            role: RoleKey(1),
             exact: true,
-            cfg_ord: 0,
         };
         let b = Rule {
             perm: Permission::PostView,
             conds: smallvec![owned, rating],
-            role: RoleTmpId(0),
+            role: RoleKey(0),
             exact: false,
-            cfg_ord: 1,
         };
         // less predicates is weaker even though everything else is stronger
         assert_eq!(a.cmp(&b), Ordering::Less);
@@ -390,7 +391,7 @@ mod tests {
     // {{{ permission rule evaluation
     #[test]
     fn test_check_perm_implicit_deny() {
-        let mut perms = PermissionTableBuilder::default().build();
+        let perms = PermissionTableBuilder::default().build();
         assert!(!perms.check(
             Permission::PostView,
             &mock_ctx(0, Rating::Safe, false),
@@ -401,6 +402,7 @@ mod tests {
     fn test_check_perm_engine_priority() {
         let mut builder = PermissionTableBuilder::default();
 
+        // TEST: it would probably be good to test the path depth sorting
         let cond_owned = Predicate::PostOwned(true);
         let cond_rating = Predicate::PostRating {
             cmp: Comparator::Eq,
@@ -411,55 +413,51 @@ mod tests {
         builder.register(Rule {
             perm: Permission::PostView,
             conds: smallvec![],
-            role: RoleTmpId(0),
+            role: RoleKey(0),
             exact: true,
-            cfg_ord: 10,
         });
 
         // rule B: strongest
         builder.register(Rule {
             perm: Permission::PostView,
             conds: smallvec![cond_owned.clone(), cond_rating.clone()],
-            role: RoleTmpId(1),
+            role: RoleKey(1),
             exact: true,
-            cfg_ord: 0,
         });
 
         // rule C: >E, <D
         builder.register(Rule {
             perm: Permission::PostView,
             conds: smallvec![cond_owned.clone()],
-            role: RoleTmpId(1),
+            role: RoleKey(1),
             exact: false,
-            cfg_ord: 5,
         });
 
         // rule D: >C, <B
         builder.register(Rule {
             perm: Permission::PostView,
             conds: smallvec![cond_owned.clone()],
-            role: RoleTmpId(0),
+            role: RoleKey(0),
             exact: true,
-            cfg_ord: 5,
         });
 
         // rule E: >A, <*
         builder.register(Rule {
             perm: Permission::PostView,
             conds: smallvec![],
-            role: RoleTmpId(1),
+            role: RoleKey(1),
             exact: true,
-            cfg_ord: 5,
         });
 
-        let mut perms = builder.build();
+        let perms = builder.build();
 
         // expected order of permissions:
-        // 0. B (2 cond) -> deny
-        // 1. D (1 cond, exact=true) -> allow
-        // 2. C (1 cond, exact=false) -> deny
-        // 3. E (0 cond, cfg_ord=5) -> deny
-        // 4. A (0 cond, cfg_ord=10) -> allow
+        //      (conds, exact, depth, role)
+        // 0. B (    2   true,     1,    1)
+        // 1. D (    1,  true,     1,    0)
+        // 2. C (    1, false,     1,    1)
+        // 3. E (    0,  true,     1,    1)
+        // 4. A (    0,  true,     1,    0)
 
         // context matches B
         let ctx_all = mock_ctx(0, Rating::Safe, true);
@@ -469,7 +467,7 @@ mod tests {
         let ctx_one = mock_ctx(0, Rating::Questionable, true);
         assert_eq!(perms.check(Permission::PostView, &ctx_one), true);
 
-        // no predicates true, fails B+D+C, should match E before A because cfg_ord >
+        // no predicates true, fails B+D+C, should match E before A because role >
         let ctx_none = mock_ctx(0, Rating::Safe, false);
         assert_eq!(perms.check(Permission::PostView, &ctx_none), false);
     }

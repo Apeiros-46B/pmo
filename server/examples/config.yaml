@@ -27,7 +27,7 @@ roles:
 # permissions are denied for all roles by default, you should use a wildcard to grant
 # your admin/root role privileged permissions if necessary.
 permissions:
-  "*": owner
+  '*': owner
   user.invite: admin
   user.edit.roles: admin
   post.view(rating=safe): guest
@@ -70,9 +70,9 @@ libraries:
     name: Music
     path: /mnt/media/music
     collection: media
-    rescan-interval: 600
+    rescan-seconds: 600
   films:
     name: Films
     path: /mnt/media/films
     collection: media
-    rescan-interval: 600
+    rescan-seconds: 600
