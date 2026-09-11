@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 mod auth;
 mod config;
 mod db;

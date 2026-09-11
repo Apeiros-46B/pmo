@@ -3,7 +3,11 @@ use std::{ops::Deref, sync::Arc};
 use anyhow::Result;
 
 use crate::{
-    auth::{Auth, RoleKey}, config::Config, db::Db, perms::{PermissionTable, PermissionTableBuilder}, secrets::Secrets,
+    auth::Auth,
+    config::Config,
+    db::Db,
+    perms::{PermissionTable, PermissionTableBuilder},
+    secrets::Secrets,
 };
 
 #[derive(Clone)]

@@ -3,8 +3,6 @@ use std::collections::HashMap;
 use moka::future::Cache;
 use serde::Deserialize;
 
-use crate::perms::PermissionTable;
-
 /// integer is db primary key
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct UserId(usize);
