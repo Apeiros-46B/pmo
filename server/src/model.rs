@@ -25,8 +25,7 @@ impl AppState {
     pub async fn new(config: Config) -> Result<Self> {
         // TODO: aggregate collections, needed for collection predicates
 
-        // TODO: don't hardcode database path, derive from config
-        let db = Db::open("test.db").await?;
+        let db = Db::open(&config.general.database_path).await?;
         let secrets = Secrets::read_or_generate(&db).await?;
 
         let auth = Auth::new(64, config.roles);

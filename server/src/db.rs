@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use anyhow::Result;
 use sqlx::{
     sqlite::{
@@ -21,7 +23,7 @@ pub struct Db {
 
 impl Db {
     /// Open the SQLite database at the given path and run migrations, if any
-    pub async fn open(path: &str) -> Result<Self> {
+    pub async fn open(path: &Path) -> Result<Self> {
         let write_opts = SqliteConnectOptions::new()
             .filename(path)
             .journal_mode(SqliteJournalMode::Wal)

@@ -23,6 +23,7 @@ pub struct Config {
 #[derive(Debug, Deserialize)]
 pub struct GeneralConfig {
     pub storage_path: PathBuf,
+    pub database_path: PathBuf,
     pub allow_signups: bool,
 }
 

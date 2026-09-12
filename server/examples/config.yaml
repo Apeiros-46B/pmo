@@ -1,5 +1,6 @@
 general:
   storage_path: /mnt/media/pmo
+  database_path: test.db
   allow_signups: false
 
 # Role hierarchy, the first role is the highest and the last role is the lowest.

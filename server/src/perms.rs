@@ -66,6 +66,7 @@ pub struct PermissionTable([Box<[Rule]>; Permission::COUNT]);
 
 impl PermissionTable {
     /// check if the given permission is allowed in the given context
+    #[allow(private_bounds)]
     pub fn check<C: ResourceContext>(
         &self,
         perm: Permission,

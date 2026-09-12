@@ -37,6 +37,8 @@ pub struct Role {
 }
 
 // TODO: interface for handling user login, cache invalidation, etc
+// TODO: it would probably be nice to have a check permission wrapper that takes in a
+// user and a generic model object like Post or Tag and internally generates *Context
 pub struct Auth {
     // indexed by RoleKey, first role is lowest
     pub roles: Vec<Role>,
